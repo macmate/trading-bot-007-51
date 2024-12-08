@@ -72,8 +72,57 @@ namespace cAlgo.Tests
         [Test]
         public void DaylightSavings_HandlesCorrectly()
         {
-            // TODO: Add tests for daylight savings transitions
-            // This will require additional implementation in SessionManager
+            // Spring forward
+            var springForward = new DateTime(2024, 3, 10, 16, 30, 0);
+            Assert.IsTrue(goldenEyeSession.IsWithinSession(springForward));
+
+            // Fall back
+            var fallBack = new DateTime(2024, 11, 3, 16, 30, 0);
+            Assert.IsTrue(goldenEyeSession.IsWithinSession(fallBack));
+        }
+
+        [Test]
+        public void CrossDaySession_HandlesCorrectly()
+        {
+            // Area 51 session spans across midnight
+            var beforeMidnight = new DateTime(2024, 12, 8, 23, 30, 0);
+            Assert.IsFalse(area51Session.IsWithinSession(beforeMidnight));
+
+            var afterMidnight = new DateTime(2024, 12, 9, 0, 30, 0);
+            Assert.IsTrue(area51Session.IsWithinSession(afterMidnight));
+        }
+
+        [Test]
+        public void WeekendTransition_HandlesCorrectly()
+        {
+            // Friday session end
+            var fridayEnd = new DateTime(2024, 12, 6, 19, 0, 0);
+            Assert.IsFalse(goldenEyeSession.IsWithinSession(fridayEnd));
+
+            // Monday session start
+            var mondayStart = new DateTime(2024, 12, 9, 16, 0, 0);
+            Assert.IsTrue(goldenEyeSession.IsWithinSession(mondayStart));
+        }
+
+        [Test]
+        public void InvalidTimeZoneOffset_ThrowsException()
+        {
+            Assert.Throws<ArgumentException>(() => new SessionManager(16, 19, -13));
+            Assert.Throws<ArgumentException>(() => new SessionManager(16, 19, 13));
+        }
+
+        [Test]
+        public void InvalidSessionHours_ThrowsException()
+        {
+            Assert.Throws<ArgumentException>(() => new SessionManager(-1, 19, timeZoneOffset));
+            Assert.Throws<ArgumentException>(() => new SessionManager(16, 24, timeZoneOffset));
+        }
+
+        [Test]
+        public void GetSessionDuration_CalculatesCorrectly()
+        {
+            var expectedDuration = TimeSpan.FromHours(3); // Golden Eye: 4 PM - 7 PM
+            Assert.AreEqual(expectedDuration, goldenEyeSession.GetSessionDuration());
         }
     }
 }
