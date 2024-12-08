@@ -1,6 +1,8 @@
 using System;
 using cAlgo.API;
 using cAlgo.API.Indicators;
+using cAlgo.RiskManagement;
+using cAlgo.TimeManagement;
 
 namespace cAlgo
 {
@@ -23,6 +25,9 @@ namespace cAlgo
 
         [Parameter("EMA Period", DefaultValue = 200)]
         public int EmaPeriod { get; set; }
+
+        [Parameter("Time Zone Offset", DefaultValue = -4)]
+        public int TimeZoneOffset { get; set; }
 
         // 007 Golden Eye Parameters
         [Parameter("007 Enabled", Group = "Golden Eye", DefaultValue = true)]
@@ -48,6 +53,9 @@ namespace cAlgo
 
         #region Instance Variables
         private MovingAverage ema;
+        private SessionManager goldenEyeSession;
+        private SessionManager area51Session;
+        private PositionSizing positionSizing;
         private double goldenEyeRangeHigh;
         private double goldenEyeRangeLow;
         private double area51RangeHigh;
@@ -60,11 +68,15 @@ namespace cAlgo
 
         protected override void OnStart()
         {
-            // Initialize EMA indicator
+            // Initialize components
             if (UseEmaFilter)
             {
                 ema = Indicators.MovingAverage(Bars.ClosePrices, EmaPeriod, MovingAverageType.Exponential);
             }
+
+            goldenEyeSession = new SessionManager(GoldenEyeStartHour, GoldenEyeEndHour, TimeZoneOffset);
+            area51Session = new SessionManager(Area51StartHour, Area51EndHour, TimeZoneOffset);
+            positionSizing = new PositionSizing(Symbol, RiskAmount);
 
             // Reset variables
             ResetRangeVariables();
@@ -90,87 +102,138 @@ namespace cAlgo
 
         private void HandleGoldenEyeStrategy()
         {
-            var currentTime = Server.Time;
-            
-            // Check if within Golden Eye session
-            if (IsWithinGoldenEyeSession(currentTime))
+            if (goldenEyeSession.IsWithinSession(Server.Time))
             {
                 if (!goldenEyeRangeSet)
                 {
-                    // Calculate and set range
                     CalculateGoldenEyeRange();
                 }
             }
-            else
+            else if (goldenEyeRangeSet)
             {
-                // Outside session - check for breakouts if range is set
-                if (goldenEyeRangeSet)
-                {
-                    CheckForBreakout(GoldenEyeLabel, goldenEyeRangeHigh, goldenEyeRangeLow);
-                }
+                CheckForBreakout(GoldenEyeLabel, goldenEyeRangeHigh, goldenEyeRangeLow);
             }
         }
 
         private void HandleArea51Strategy()
         {
-            var currentTime = Server.Time;
-            
-            // Check if within Area 51 session
-            if (IsWithinArea51Session(currentTime))
+            if (area51Session.IsWithinSession(Server.Time))
             {
                 if (!area51RangeSet)
                 {
-                    // Calculate and set range
                     CalculateArea51Range();
                 }
             }
-            else
+            else if (area51RangeSet)
             {
-                // Outside session - check for breakouts if range is set
-                if (area51RangeSet)
-                {
-                    CheckForBreakout(Area51Label, area51RangeHigh, area51RangeLow);
-                }
+                CheckForBreakout(Area51Label, area51RangeHigh, area51RangeLow);
             }
-        }
-
-        private bool IsWithinGoldenEyeSession(DateTime time)
-        {
-            var estHour = GetEstHour(time);
-            return estHour >= GoldenEyeStartHour && estHour < GoldenEyeEndHour;
-        }
-
-        private bool IsWithinArea51Session(DateTime time)
-        {
-            var estHour = GetEstHour(time);
-            return estHour >= Area51StartHour && estHour < Area51EndHour;
-        }
-
-        private int GetEstHour(DateTime time)
-        {
-            // Convert server time to EST
-            // TODO: Implement proper timezone conversion
-            return time.Hour;
         }
 
         private void CalculateGoldenEyeRange()
         {
-            // TODO: Implement range calculation logic
+            var lastCompletedBar = Bars.Count - 2;
+            var sessionBars = 0;
+            var high = double.MinValue;
+            var low = double.MaxValue;
+
+            // Look back through bars to find session range
+            for (int i = lastCompletedBar; i >= 0; i--)
+            {
+                var barTime = Bars.OpenTimes[i];
+                if (!goldenEyeSession.IsWithinSession(barTime))
+                    break;
+
+                high = Math.Max(high, Bars.HighPrices[i]);
+                low = Math.Min(low, Bars.LowPrices[i]);
+                sessionBars++;
+            }
+
+            if (sessionBars > 0)
+            {
+                goldenEyeRangeHigh = high;
+                goldenEyeRangeLow = low;
+                goldenEyeRangeSet = true;
+            }
         }
 
         private void CalculateArea51Range()
         {
-            // TODO: Implement range calculation logic
+            var lastCompletedBar = Bars.Count - 2;
+            var sessionBars = 0;
+            var high = double.MinValue;
+            var low = double.MaxValue;
+
+            // Look back through bars to find session range
+            for (int i = lastCompletedBar; i >= 0; i--)
+            {
+                var barTime = Bars.OpenTimes[i];
+                if (!area51Session.IsWithinSession(barTime))
+                    break;
+
+                high = Math.Max(high, Bars.HighPrices[i]);
+                low = Math.Min(low, Bars.LowPrices[i]);
+                sessionBars++;
+            }
+
+            if (sessionBars > 0)
+            {
+                area51RangeHigh = high;
+                area51RangeLow = low;
+                area51RangeSet = true;
+            }
         }
 
         private void CheckForBreakout(string label, double high, double low)
         {
-            // TODO: Implement breakout detection and trade execution
+            if (!UseEmaFilter || ValidateEmaDirection())
+            {
+                var range = high - low;
+                var stopLoss = range * 0.5;
+                var takeProfit = range * 3;
+
+                // Check for long setup
+                if (Symbol.Ask > high && !HasPosition(label))
+                {
+                    ExecuteMarketOrder(TradeType.Buy, Symbol.Name, CalculatePositionSize(stopLoss), label, stopLoss, takeProfit);
+                }
+                // Check for short setup
+                else if (Symbol.Bid < low && !HasPosition(label))
+                {
+                    ExecuteMarketOrder(TradeType.Sell, Symbol.Name, CalculatePositionSize(stopLoss), label, stopLoss, takeProfit);
+                }
+            }
+        }
+
+        private bool ValidateEmaDirection()
+        {
+            var currentClose = Bars.ClosePrices.Last(1);
+            var currentEma = ema.Result.Last(1);
+            
+            return currentClose > currentEma; // Validates trend direction
+        }
+
+        private double CalculatePositionSize(double stopLossPips)
+        {
+            return positionSizing.CalculatePositionSize(stopLossPips);
+        }
+
+        private bool HasPosition(string label)
+        {
+            return Positions.Find(label, Symbol.Name) != null;
         }
 
         private void ManagePositions()
         {
-            // TODO: Implement position management including break-even moves
+            if (!MoveToBreakEven) return;
+
+            foreach (var position in Positions)
+            {
+                if (position.Pips >= position.StopLoss * 2) // Move to break even at 1R
+                {
+                    ModifyPosition(position, position.EntryPrice, position.TakeProfit);
+                }
+            }
         }
 
         private void ResetRangeVariables()
