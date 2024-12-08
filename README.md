@@ -27,6 +27,46 @@ This bot implements two distinct trading strategies:
 - Session-based range calculation
 - Multiple risk management approaches
 
+## Project Structure
+
+```
+src/
+├── Indicators/     # Custom indicators including EMA
+├── Strategies/     # Strategy implementations
+├── RiskManagement/ # Position sizing and risk management
+├── TimeManagement/ # Session time window handling
+└── Utils/         # Helper functions
+
+tests/
+├── Mocks/         # Mock objects for testing
+├── TestHelpers/   # Testing utilities and constants
+├── SessionManagerTests.cs
+├── PositionSizingTests.cs
+└── RangeCalculationTests.cs
+```
+
+## Test Coverage
+
+The bot includes comprehensive unit tests covering:
+
+1. Session Management
+   - Time window validation
+   - Timezone handling
+   - Session transitions
+   - DST handling
+
+2. Position Sizing
+   - Risk-based calculations
+   - Lot size rounding
+   - Min/max position validation
+   - Edge cases
+
+3. Range Calculation
+   - Session range identification
+   - Empty session handling
+   - Minimum range validation
+   - Data validation
+
 ## Performance Summary
 
 Backtest results (June-August 2024):
@@ -52,17 +92,6 @@ Golden Eye (007):
 Area 51:
 - Win Rate: 50%
 - Net Profit: $19,000
-
-## Project Structure
-
-```
-src/
-├── Indicators/     # Custom indicators including EMA
-├── Strategies/     # Strategy implementations
-├── RiskManagement/ # Position sizing and risk management
-├── TimeManagement/ # Session time window handling
-└── Utils/         # Helper functions
-```
 
 ## Installation
 
